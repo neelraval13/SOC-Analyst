@@ -10,7 +10,7 @@ readme = "README.md"
 license = {text = "MIT"}
 requires-python = ">=3.10"
 authors = [
-    {name = "Abe Boodala"},
+    {name = "Neel Raval"},
 ]
 
 dependencies = [
@@ -20,6 +20,9 @@ dependencies = [
     "pydantic>=2.0.0",
     "openai>=1.0.0",
 ]
+
+[project.scripts]
+server = "server.app:main"
 
 [project.optional-dependencies]
 dev = [
