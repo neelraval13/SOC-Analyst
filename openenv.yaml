@@ -1,0 +1,78 @@
+name: soc_analyst_env
+version: "1.0.0"
+description: >
+  Security Operations Center (SOC) Analyst Environment.
+  Simulates real-world SOC analyst workflows including alert triage,
+  incident investigation, and multi-alert correlation for identifying
+  coordinated attack campaigns.
+
+author: "Abe Boodala"
+license: "MIT"
+
+tasks:
+  - id: soc_triage_easy
+    description: "Alert Triage: Classify 5 security alerts as true_positive, false_positive, or needs_investigation."
+    difficulty: easy
+    max_steps: 10
+
+  - id: soc_investigate_medium
+    description: "Incident Investigation: Investigate suspicious alerts using context queries, diagnose threats, and take response actions."
+    difficulty: medium
+    max_steps: 15
+
+  - id: soc_correlate_hard
+    description: "Multi-Alert Correlation: Identify a coordinated attack campaign across 10 alerts, correlate the kill chain, and submit an incident report."
+    difficulty: hard
+    max_steps: 25
+
+action_space:
+  type: SOCAction
+  fields:
+    - name: action_type
+      type: string
+      description: "classify, query_context, escalate, contain, dismiss, correlate, submit_report"
+    - name: alert_id
+      type: string
+      description: "Target alert ID"
+    - name: classification
+      type: string
+      description: "true_positive, false_positive, needs_investigation"
+    - name: query_type
+      type: string
+      description: "user_profile, network_logs, threat_intel, asset_info"
+    - name: alert_ids
+      type: list
+      description: "List of alert IDs for correlation"
+    - name: report
+      type: string
+      description: "Incident report text"
+
+observation_space:
+  type: SOCObservation
+  fields:
+    - name: task_id
+      type: string
+    - name: task_description
+      type: string
+    - name: alerts
+      type: list
+      description: "Active security alerts with details"
+    - name: context_response
+      type: string
+      description: "Response from context queries"
+    - name: action_feedback
+      type: string
+    - name: classifications_made
+      type: dict
+    - name: available_actions
+      type: list
+    - name: score_so_far
+      type: float
+
+tags:
+  - openenv
+  - cybersecurity
+  - soc
+  - security-operations
+  - alert-triage
+  - incident-response
