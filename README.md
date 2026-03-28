@@ -1,3 +1,14 @@
+---
+title: SOC Analyst Environment
+emoji: 🛡️
+colorFrom: red
+colorTo: gray
+sdk: docker
+app_port: 7860
+tags:
+  - openenv
+---
+
 # SOC Analyst Environment
 
 A realistic Security Operations Center (SOC) analyst simulation built on the [OpenEnv](https://github.com/meta-pytorch/OpenEnv) framework. AI agents learn to triage security alerts, investigate incidents, and identify coordinated cyberattack campaigns.
