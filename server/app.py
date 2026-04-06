@@ -54,10 +54,21 @@ class HealthResponse(BaseModel):
 # Application
 # ============================================================================
 
+from fastapi.middleware.cors import CORSMiddleware
+
 app = FastAPI(
     title="SOC Analyst Environment",
     description="Security Operations Center analyst simulation for AI agent training",
     version="1.0.0",
+)
+
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # Global environment instance (stateful across requests)
