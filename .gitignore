@@ -6,3 +6,6 @@ __pycache__/
 .env.local
 outputs/
 .pytest_cache/
+*.egg-info/
+dist/
+*.swp
