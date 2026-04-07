@@ -50,10 +50,20 @@ action_space:
 observation_space:
   type: SOCObservation
   fields:
+    - name: done
+      type: boolean
+    - name: reward
+      type: float
+    - name: metadata
+      type: dict
     - name: task_id
       type: string
     - name: task_description
       type: string
+    - name: step_number
+      type: integer
+    - name: max_steps
+      type: integer
     - name: alerts
       type: list
       description: "Active security alerts with details"
