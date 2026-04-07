@@ -28,7 +28,7 @@ from openai.types.chat import ChatCompletionMessageParam
 API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
 API_KEY = os.getenv("HF_TOKEN") or os.getenv("API_KEY", "")
 MODEL_NAME = os.getenv("MODEL_NAME", "meta-llama/Llama-3.1-8B-Instruct")
-ENV_BASE_URL = os.getenv("ENV_BASE_URL", "http://localhost:7860")
+ENV_BASE_URL = os.getenv("ENV_BASE_URL", "https://neel-raval-soc-analyst-env.hf.space")
 
 TEMPERATURE = 0.2
 MAX_TOKENS = 500
@@ -136,7 +136,7 @@ def env_reset(task_id: str, seed: int = 42) -> Dict[str, Any]:
     resp = requests.post(
         f"{ENV_BASE_URL}/reset",
         json={"seed": seed, "task_id": task_id},
-        timeout=30,
+        timeout=60,
     )
     resp.raise_for_status()
     return resp.json()
@@ -147,15 +147,8 @@ def env_step(action: Dict[str, Any]) -> Dict[str, Any]:
     resp = requests.post(
         f"{ENV_BASE_URL}/step",
         json=action,
-        timeout=30,
+        timeout=60,
     )
-    resp.raise_for_status()
-    return resp.json()
-
-
-def env_state() -> Dict[str, Any]:
-    """Get current environment state."""
-    resp = requests.get(f"{ENV_BASE_URL}/state", timeout=30)
     resp.raise_for_status()
     return resp.json()
 
@@ -177,7 +170,6 @@ def build_user_prompt(observation: Dict[str, Any], step: int) -> str:
     max_steps = observation.get("max_steps", 20)
     score = observation.get("score_so_far", 0.0)
 
-    # Format alerts concisely
     alert_lines = []
     for a in alerts:
         classified = classifications.get(a.get("alert_id", ""), None)
@@ -190,8 +182,6 @@ def build_user_prompt(observation: Dict[str, Any], step: int) -> str:
         )
 
     alerts_text = "\n".join(alert_lines) if alert_lines else "  (none)"
-
-    # Recent actions (last 5)
     recent_actions = actions[-5:] if actions else ["(none)"]
 
     prompt = textwrap.dedent(f"""
@@ -224,15 +214,11 @@ def parse_action(response_text: str) -> Dict[str, Any]:
             "classification": "needs_investigation",
         }
 
-    # Try to find JSON in response
     text = response_text.strip()
-
-    # Remove markdown code blocks if present
     text = re.sub(r"```json\s*", "", text)
     text = re.sub(r"```\s*", "", text)
     text = text.strip()
 
-    # Try to find JSON object
     json_match = re.search(r"\{[^{}]*\}", text, re.DOTALL)
     if json_match:
         try:
@@ -242,7 +228,6 @@ def parse_action(response_text: str) -> Dict[str, Any]:
         except json.JSONDecodeError:
             pass
 
-    # Fallback: try to parse the whole thing
     try:
         action = json.loads(text)
         if isinstance(action, dict) and "action_type" in action:
@@ -250,7 +235,6 @@ def parse_action(response_text: str) -> Dict[str, Any]:
     except json.JSONDecodeError:
         pass
 
-    # Last resort fallback
     return {
         "action_type": "classify",
         "alert_id": "ALT-001",
@@ -267,123 +251,92 @@ def run_task(client: OpenAI, task_config: Dict[str, Any]) -> float:
     """Run a single task and return the final score."""
     task_id = task_config["task_id"]
     max_steps = task_config["max_steps"]
-    task_name = task_config["name"]
 
-    print(f"\n{'=' * 60}")
-    print(f"Running: {task_name}")
-    print(f"Task ID: {task_id}")
-    print(f"{'=' * 60}")
-
-    # --- Required structured output: task start ---
+    # Always print [START] first, no matter what
     print(f"[START] task={task_id}", flush=True)
 
-    # Reset environment
-    obs = env_reset(task_id=task_id, seed=42)
-    system_prompt = SYSTEM_PROMPTS[task_id]
-
-    messages: List[ChatCompletionMessageParam] = [
-        {"role": "system", "content": system_prompt},
-    ]
-
-    final_score = 0.0
     completed_step = 0
+    final_score = 0.0
 
-    for step in range(1, max_steps + 1):
+    try:
+        obs = env_reset(task_id=task_id, seed=42)
+        system_prompt = SYSTEM_PROMPTS[task_id]
+
+        messages: List[ChatCompletionMessageParam] = [
+            {"role": "system", "content": system_prompt},
+        ]
+
+        for step in range(1, max_steps + 1):
+            if obs.get("done", False):
+                final_score = obs.get("metadata", {}).get("final_score", 0.0) or 0.0
+                break
+
+            user_prompt = build_user_prompt(obs, step)
+
+            messages.append({"role": "user", "content": user_prompt})
+            if len(messages) > 7:
+                messages = [messages[0]] + messages[-6:]
+
+            try:
+                completion = client.chat.completions.create(
+                    model=MODEL_NAME,
+                    messages=messages,
+                    temperature=TEMPERATURE,
+                    max_tokens=MAX_TOKENS,
+                )
+                response_text = completion.choices[0].message.content or ""
+            except Exception as exc:
+                print(f"  Step {step}: LLM error ({exc}). Using fallback.", flush=True)
+                response_text = ""
+
+            action = parse_action(response_text)
+            messages.append({"role": "assistant", "content": response_text})
+
+            try:
+                obs = env_step(action)
+            except Exception as exc:
+                print(
+                    f"  Step {step}: Environment error ({exc}). Stopping.", flush=True
+                )
+                break
+
+            reward = obs.get("reward", 0) or 0.0
+            print(f"[STEP] step={step} reward={reward:.4f}", flush=True)
+            completed_step = step
+
         if obs.get("done", False):
-            final_score = obs.get("metadata", {}).get("final_score", 0.0)
-            print(f"  Episode complete at step {step - 1}. Final score: {final_score}")
-            break
-
-        # Build user prompt
-        user_prompt = build_user_prompt(obs, step)
-
-        # Manage conversation - keep system + last 6 messages to fit context
-        messages.append({"role": "user", "content": user_prompt})
-        if len(messages) > 7:
-            messages = [messages[0]] + messages[-6:]
-
-        # Query LLM
-        try:
-            completion = client.chat.completions.create(
-                model=MODEL_NAME,
-                messages=messages,
-                temperature=TEMPERATURE,
-                max_tokens=MAX_TOKENS,
-            )
-            response_text = completion.choices[0].message.content or ""
-        except Exception as exc:
-            print(f"  Step {step}: LLM error ({exc}). Using fallback.")
-            response_text = ""
-
-        # Parse action
-        action = parse_action(response_text)
-        print(
-            f"  Step {step}: {action.get('action_type', '?')} -> {action.get('alert_id', '')}"
-        )
-
-        # Add assistant message to history
-        messages.append({"role": "assistant", "content": response_text})
-
-        # Step environment
-        try:
-            obs = env_step(action)
-        except Exception as exc:
-            print(f"  Step {step}: Environment error ({exc}). Stopping.")
-            break
-
-        reward = obs.get("reward", 0) or 0.0
-        score_so_far = obs.get("score_so_far", 0.0) or 0.0
-        if reward is not None:
-            print(f"    Reward: {reward:.4f} | Score: {score_so_far:.4f}")
-
-        # --- Required structured output: per-step ---
-        print(f"[STEP] step={step} reward={reward:.4f}", flush=True)
-        completed_step = step
-
-    # Get final score from observation if episode ended
-    if obs.get("done", False):
-        final_score = obs.get("metadata", {}).get("final_score", final_score)
-    else:
-        try:
+            final_score = obs.get("metadata", {}).get("final_score", final_score) or 0.0
+        else:
             final_score = obs.get("reward", 0.0) or 0.0
-        except Exception:
-            pass
 
-    print(f"  Final Score: {final_score:.4f}")
+    except Exception as exc:
+        print(f"  Task error: {exc}", flush=True)
+        final_score = 0.0
 
-    # --- Required structured output: task end ---
-    print(f"[END] task={task_id} score={final_score:.4f} steps={completed_step}", flush=True)
-
+    # Always print [END], even if task failed
+    print(
+        f"[END] task={task_id} score={final_score:.4f} steps={completed_step}",
+        flush=True,
+    )
     return final_score
 
 
 def main():
     """Run baseline inference across all 3 tasks."""
-    print("SOC Analyst Environment - Baseline Inference")
-    print(f"API Base URL: {API_BASE_URL}")
-    print(f"Model: {MODEL_NAME}")
-    print(f"Environment: {ENV_BASE_URL}")
+    print("SOC Analyst Environment - Baseline Inference", flush=True)
+    print(f"Environment: {ENV_BASE_URL}", flush=True)
 
     client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
 
     results = {}
     for task_config in TASKS:
-        try:
-            score = run_task(client, task_config)
-            results[task_config["task_id"]] = score
-        except Exception as exc:
-            print(f"  Task {task_config['task_id']} failed: {exc}")
-            results[task_config["task_id"]] = 0.0
+        score = run_task(client, task_config)
+        results[task_config["task_id"]] = score
 
-    # Print summary
-    print(f"\n{'=' * 60}")
-    print("RESULTS SUMMARY")
-    print(f"{'=' * 60}")
     for task_id, score in results.items():
-        print(f"  {task_id}: {score:.4f}")
+        print(f"  {task_id}: {score:.4f}", flush=True)
     avg = sum(results.values()) / len(results) if results else 0.0
-    print(f"  Average: {avg:.4f}")
-    print(f"{'=' * 60}")
+    print(f"  Average: {avg:.4f}", flush=True)
 
     return results
 
