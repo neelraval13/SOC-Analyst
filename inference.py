@@ -274,6 +274,9 @@ def run_task(client: OpenAI, task_config: Dict[str, Any]) -> float:
     print(f"Task ID: {task_id}")
     print(f"{'=' * 60}")
 
+    # --- Required structured output: task start ---
+    print(f"[START] task={task_id}", flush=True)
+
     # Reset environment
     obs = env_reset(task_id=task_id, seed=42)
     system_prompt = SYSTEM_PROMPTS[task_id]
@@ -283,6 +286,7 @@ def run_task(client: OpenAI, task_config: Dict[str, Any]) -> float:
     ]
 
     final_score = 0.0
+    completed_step = 0
 
     for step in range(1, max_steps + 1):
         if obs.get("done", False):
@@ -327,9 +331,14 @@ def run_task(client: OpenAI, task_config: Dict[str, Any]) -> float:
             print(f"  Step {step}: Environment error ({exc}). Stopping.")
             break
 
-        reward = obs.get("reward", 0)
+        reward = obs.get("reward", 0) or 0.0
+        score_so_far = obs.get("score_so_far", 0.0) or 0.0
         if reward is not None:
-            print(f"    Reward: {reward:.4f} | Score: {obs.get('score_so_far', 0):.4f}")
+            print(f"    Reward: {reward:.4f} | Score: {score_so_far:.4f}")
+
+        # --- Required structured output: per-step ---
+        print(f"[STEP] step={step} reward={reward:.4f}", flush=True)
+        completed_step = step
 
     # Get final score from observation if episode ended
     if obs.get("done", False):
@@ -341,6 +350,10 @@ def run_task(client: OpenAI, task_config: Dict[str, Any]) -> float:
             pass
 
     print(f"  Final Score: {final_score:.4f}")
+
+    # --- Required structured output: task end ---
+    print(f"[END] task={task_id} score={final_score:.4f} steps={completed_step}", flush=True)
+
     return final_score
 
 
